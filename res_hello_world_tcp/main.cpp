@@ -1,0 +1,105 @@
+//  res_hello_world_tcp.cpp
+//  socket通信实现简单的文件传输
+//  该程序是socket客户端，socket client
+//
+//  创建日期：2019/5/22.
+//	作者：smartpeanut
+
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
+
+#define SERVER_PORT 17899
+#define BUFFER_SIZE 1024
+#define FILE_NAME_MAX_SIZE 512
+
+int main(int argc, char **argv)
+{
+
+    // 声明并初始化一个socket
+    struct sockaddr_in client_addr;
+    bzero(&client_addr, sizeof(client_addr));
+    client_addr.sin_family = AF_INET;
+    client_addr.sin_addr.s_addr = htons(INADDR_ANY);
+    client_addr.sin_port = htons(0);
+
+    // 创建socket，若成功，返回socket描述符
+    int client_socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if(client_socket_fd < 0){
+        perror("Create Socket Failed:");
+        exit(1);
+    }
+    // 绑定客户端的socket和客户端的socket地址结构 非必需
+    if(-1 == (bind(client_socket_fd, (struct sockaddr*)&client_addr, sizeof(client_addr)))){
+        perror("Client Bind Failed:");
+        exit(1);
+    }
+    // 声明一个服务器端的socket地址结构，并用服务器那边的IP地址及端口对其进行初始化，用于后面的连接
+    struct sockaddr_in server_addr;
+    bzero(&server_addr, sizeof(server_addr));
+    server_addr.sin_family = AF_INET;
+    if(inet_pton(AF_INET, "127.0.0.1", &server_addr.sin_addr) == 0){
+        perror("Server IP Address Error:");
+        exit(1);
+    }
+    server_addr.sin_port = htons(SERVER_PORT);
+    socklen_t server_addr_length = sizeof(server_addr);
+
+    // 向服务器发起连接，连接成功后client_socket_fd代表了客户端和服务器的一个socket连接
+    if(connect(client_socket_fd, (struct sockaddr*)&server_addr, server_addr_length) < 0){
+        perror("Can Not Connect To Server IP:");
+        exit(0);
+    }
+
+    // 输入文件名 并放到缓冲区buffer中等待发送
+    char file_name[FILE_NAME_MAX_SIZE];
+    char file_save_name[FILE_NAME_MAX_SIZE];
+    bzero(file_name, FILE_NAME_MAX_SIZE+1);
+    printf("Please Input File Name On Server:\t");
+     gets( file_name);
+    printf("Please Input File Name to save On Client:\t");
+     gets(file_save_name);
+
+    char buffer[BUFFER_SIZE];
+    bzero(buffer, BUFFER_SIZE);
+    strncpy(buffer, file_name, strlen(file_name)>BUFFER_SIZE?BUFFER_SIZE:strlen(file_name));
+
+    // 向服务器发送buffer中的数据
+    if(send(client_socket_fd, buffer, BUFFER_SIZE, 0) < 0){
+        perror("Send File Name Failed:");
+        exit(1);
+    }
+
+    // 打开文件，准备写入
+    FILE *fp = fopen(file_save_name, "w");
+    if(NULL == fp){
+        printf("File:\t%s Can Not Open To Write\n", file_save_name);
+        exit(1);
+    }
+
+    // 从服务器接收数据到buffer中
+    // 每接收一段数据，便将其写入文件中，循环直到文件接收完并写完为止
+    bzero(buffer, BUFFER_SIZE);
+    int length = 0;
+    int allCount =0;
+    while((length = (int)recv(client_socket_fd, buffer, BUFFER_SIZE, 0)) > 0){
+        if(fwrite(buffer, sizeof(char), length, fp) < length){
+            printf("File:\t%s Write Failed\n", file_name);
+            break;
+        }
+        allCount+=length;
+        bzero(buffer, BUFFER_SIZE);
+    }
+
+    // 接收成功后，关闭文件，关闭socket
+    printf("Receive File:\t%s From Server IP Successful! 共%dK\n", file_save_name,allCount);
+    fclose(fp);
+    close(client_socket_fd);
+    return 0;
+
+}
+
